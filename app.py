@@ -6,12 +6,18 @@ import sys
 import time
 import pandas as pd
 import requests
-from git import Repo, GitCommandError
+from git import Repo
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from telegram import Bot
 
-# Konsol ve Log Yapılandırması
+# --- TELEGRAM AYARLARI ---
+TELEGRAM_TOKEN = "7526393717:AAGX5efyXkmIgC2LEM3c3VazzUBVa3YgMd4"
+CHAT_ID = "1239624540"
+telegram_bot = Bot(token=TELEGRAM_TOKEN) if TELEGRAM_TOKEN != "SENIN_BOT_TOKEN_BURAYA" else None
+
+# Konsol and Log Yapılandırması
 console = Console()
 logging.basicConfig(
     level=logging.INFO,
@@ -27,7 +33,6 @@ USER_AGENTS = [
 ]
 
 class CryptoMarketBot:
-    """CoinMarketCap verilerini çeken, analiz eden ve GitHub'a senkronize eden ana sınıf."""
     def __init__(self, limit=20, db_path="crypto_data.db", csv_path="crypto_snapshot.csv"):
         self.limit = limit
         self.api_url = f"https://api.coinmarketcap.com/data-api/v3/cryptocurrency/listing?start=1&limit={self.limit}&convert=USD"
@@ -37,7 +42,6 @@ class CryptoMarketBot:
         self._init_git()
 
     def _init_db(self):
-        """SQLite veritabanı tablosunu hazırlar."""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS crypto_market (
@@ -56,7 +60,6 @@ class CryptoMarketBot:
             conn.commit()
 
     def _init_git(self):
-        """Git deposunu bağlar."""
         try:
             self.repo = Repo(".")
         except Exception:
@@ -64,7 +67,6 @@ class CryptoMarketBot:
             logger.warning("Git deposu algılanamadı.")
 
     def fetch_data(self) -> list:
-        """CMC API üzerinden canlı verileri çeker."""
         headers = {
             "User-Agent": random.choice(USER_AGENTS),
             "Accept": "application/json, text/plain, */*",
@@ -75,7 +77,6 @@ class CryptoMarketBot:
             try:
                 response = requests.get(self.api_url, headers=headers, timeout=15)
                 if response.status_code == 429:
-                    logger.warning("Rate-limit (429) algılandı, bekleniyor...")
                     time.sleep(5)
                     continue
                 response.raise_for_status()
@@ -98,12 +99,11 @@ class CryptoMarketBot:
                     })
                 return parsed_data
             except Exception as e:
-                logger.error(f"Veri çekme hatası (Deneme {attempt+1}): {e}")
+                logger.error(f"Veri çekme hatası: {e}")
                 time.sleep(3)
         return []
 
     def process_data(self, raw_data: list) -> pd.DataFrame:
-        """Veriyi temizler, NaN değerleri güvenli hale getirir ve depoya kaydeder."""
         if not raw_data:
             return pd.DataFrame()
 
@@ -115,22 +115,15 @@ class CryptoMarketBot:
         for col in numeric_cols:
             df[col] = pd.to_numeric(df[col], errors="coerce")
             
-        # NaN değerlerin çökme yaratmaması için güvenli varsayılan değerler atama
         df.fillna({
-            "rank": 0,
-            "price": 0.0,
-            "percent_change_1h": 0.0,
-            "percent_change_24h": 0.0,
-            "percent_change_7d": 0.0,
-            "market_cap": 0.0,
-            "volume_24h": 0.0,
-            "name": "Unknown",
-            "symbol": "UNK"
+            "rank": 0, "price": 0.0, "percent_change_1h": 0.0,
+            "percent_change_24h": 0.0, "percent_change_7d": 0.0,
+            "market_cap": 0.0, "volume_24h": 0.0,
+            "name": "Unknown", "symbol": "UNK"
         }, inplace=True)
 
         df.dropna(subset=["symbol", "price"], inplace=True)
 
-        # Yerel Depolama
         try:
             with sqlite3.connect(self.db_path) as conn:
                 df.to_sql("crypto_market", conn, if_exists="append", index=False)
@@ -141,7 +134,6 @@ class CryptoMarketBot:
         return df
 
     def sync_github(self, timestamp_str):
-        """Dosyaları GitHub'a otomatik push eder."""
         if not self.repo:
             return
         try:
@@ -155,9 +147,24 @@ class CryptoMarketBot:
         except Exception as e:
             logger.error(f"GitHub senkronizasyon hatası: {e}")
 
+async def send_telegram_alert(df: pd.DataFrame, timestamp: str):
+    if not telegram_bot or CHAT_ID == "SENIN_CHAT_ID_BURAYA":
+        return
+
+    try:
+        msg = f"📊 *Kripto Piyasa Raporu* ({timestamp})\n\n"
+        for _, row in df.head(5).iterrows():
+            emoji = "🟢" if row["percent_change_24h"] >= 0 else "🔴"
+            msg += f"{emoji} *{row['symbol']}*: ${row['price']:,.2f} ({row['percent_change_24h']:.2f}%)\n"
+        
+        await telegram_bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode="Markdown")
+        logger.info("Telegram bildirimi başarıyla gönderildi.")
+    except Exception as e:
+        logger.error(f"Telegram gönderme hatası: {e}")
+
 async def main():
     bot = CryptoMarketBot(limit=15)
-    console.print(Panel.fit("[bold cyan]Crypto Market Termux Bot Aktif[/]", subtitle="Live CMC Data"))
+    console.print(Panel.fit("[bold cyan]Crypto Market Termux Bot (Telegram Aktif)[/]", subtitle="Live CMC Data"))
 
     while True:
         try:
@@ -168,7 +175,6 @@ async def main():
                 df = bot.process_data(raw_data)
                 timestamp = df["timestamp"].iloc[0]
 
-                # Tablo Oluştur
                 table = Table(title=f"Kripto Para Piyasa Durumu ({timestamp})", show_lines=True)
                 table.add_column("Sıra", justify="center", style="cyan")
                 table.add_column("İsim", style="magenta")
@@ -188,8 +194,8 @@ async def main():
                     )
                 console.print(table)
 
-                # GitHub Sync
                 bot.sync_github(timestamp)
+                await send_telegram_alert(df, timestamp)
             else:
                 logger.warning("Veri alınamadı, tekrar denenecek.")
 
