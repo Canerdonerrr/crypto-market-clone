@@ -1,6 +1,7 @@
 import os
 import time
 import requests
+from bs4 import BeautifulSoup
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -110,6 +111,8 @@ def fetch_jrkripto_macros():
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
         response = requests.get(url, headers=headers, timeout=4)
         if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            # jrkripto.com üzerindeki elementler bu blokta BeautifulSoup ile ayrıştırılabilir.
             return macros
     except Exception as e:
         print(f"jrkripto.com Bağlantı Hatası: {e}")

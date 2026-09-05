@@ -1,0 +1,10 @@
+nohup: ignoring input
+ * Serving Flask app 'web'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8080
+ * Running on http://192.168.1.14:8080
+[33mPress CTRL+C to quit[0m
+192.168.1.14 - - [03/Sep/2026 23:34:10] "GET / HTTP/1.1" 200 -
+192.168.1.14 - - [03/Sep/2026 23:34:12] "GET / HTTP/1.1" 200 -

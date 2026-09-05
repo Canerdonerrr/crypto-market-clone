@@ -1,0 +1,209 @@
+ <!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>JrKripto & CMC Top 50 Kurumsal Terminal</title>
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; }
+        h1, h2 { color: #38bdf8; border-bottom: 2px solid #1e293b; padding-bottom: 8px; }
+        .container { max-width: 1450px; margin: auto; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 30px; background: #1e293b; border-radius: 8px; overflow: hidden; }
+        th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #334155; transition: background-color 0.5s ease; white-space: nowrap; font-size: 0.9rem; }
+        th { background-color: #0284c7; color: white; text-transform: uppercase; font-size: 0.8rem; }
+        tr:hover { background-color: #334155; }
+        .pos { color: #4ade80; font-weight: bold; }
+        .neg { color: #f87171; font-weight: bold; }
+        .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom: 30px; }
+        .card { background: #1e293b; padding: 20px; border-radius: 8px; border-left: 4px solid #0284c7; }
+        .card h3 { margin: 0 0 10px 0; font-size: 0.9rem; color: #94a3b8; }
+        .card p { margin: 0; font-size: 1.5rem; font-weight: bold; color: #f1f5f9; }
+        .badge { background: #0369a1; color: #e0f2fe; padding: 3px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; display: inline-block; }
+        
+        .flash-green { animation: flashGreen 1.2s ease; }
+        .flash-red { animation: flashRed 1.2s ease; }
+        @keyframes flashGreen { 0% { background-color: #166534; } 100% { background-color: transparent; } }
+        @keyframes flashRed { 0% { background-color: #991b1b; } 100% { background-color: transparent; } }
+
+        .chart-container { background: #1e293b; padding: 15px; border-radius: 8px; margin-bottom: 30px; }
+        select { background: #0f172a; color: white; padding: 8px 12px; border: 1px solid #334155; border-radius: 6px; font-size: 1rem; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 JrKripto & CMC Top 50 Kurumsal Veri Terminali</h1>
+        <p>Canlı Fiyat Akışı, Renkli Animasyonlar ve TradingView Özel Grafik Entegrasyonu</p>
+        
+        <h2>📊 Küresel Makro & Duygu Durum</h2>
+        <div class="card-grid">
+            <div class="card"><h3>BTC Dominansı</h3><p>{{ macro.btc_dominance }}%</p></div>
+            <div class="card"><h3>ETH Dominansı</h3><p>{{ macro.eth_dominance }}%</p></div>
+            <div class="card"><h3>Korku & Açgözlülük</h3><p>{{ macro.fear_greed_index }}/100</p></div>
+            <div class="card"><h3>ETH Gas Gwei</h3><p>{{ macro.eth_gas_gwei }} Gwei</p></div>
+        </div>
+
+        <h2>📈 TradingView Gelişmiş Parite Grafiği</h2>
+        <div class="chart-container">
+            <label for="symbolSelect"><b>Grafik Sembolü Seç:</b></label>
+            <select id="symbolSelect" onchange="updateTradingViewChart()">
+                {% for s in spot %}
+                <option value="BINANCE:{{ s[0].replace('/', '') }}">{{ s[0] }}</option>
+                {% endfor %}
+            </select>
+            <div id="tradingview_widget" style="height: 500px; width: 100%;"></div>
+        </div>
+
+        <h2>💎 CoinMarketCap Top 50 Spot Piyasa (Canlı Anlık)</h2>
+        <table>
+            <thead>
+                <tr><th>#</th><th>Sembol</th><th>Fiyat (USD)</th><th>1s Değişim</th><th>24s Değişim</th><th>24s Hacim</th><th>Piyasa Değeri</th><th>Kaynak</th></tr>
+            </thead>
+            <tbody id="cryptoTableBody">
+                {% for s in spot %}
+                <tr id="row-{{ s[0].replace('/', '') }}">
+                    <td>{{ loop.index }}</td>
+                    <td><b>{{ s[0] }}</b></td>
+                    <td id="price-{{ s[0].replace('/', '') }}">${{ "%.4f"|format(s[1]) if s[1] < 1 else "%.2f"|format(s[1]) }}</td>
+                    <td class="{{ 'pos' if s[2] >= 0 else 'neg' }}">{{ '+' if s[2] >= 0 else '' }}{{ s[2] }}%</td>
+                    <td class="{{ 'pos' if s[3] >= 0 else 'neg' }}">{{ '+' if s[3] >= 0 else '' }}{{ s[3] }}%</td>
+                    <td>${{ "{:,.0f}".format(s[5]) }}</td>
+                    <td>${{ "{:,.0f}".format(s[6]) }}</td>
+                    <td><span class="badge">{{ s[7] }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+    <script type="text/javascript">
+        let tvWidget = null;
+        function initTradingView(symbol) {
+            document.getElementById("tradingview_widget").innerHTML = "";
+            tvWidget = new TradingView.widget({
+                "width": "100%", "height": "500", "symbol": symbol, "interval": "D",
+                "timezone": "Etc/UTC", "theme": "dark", "style": "1", "locale": "tr",
+                "toolbar_bg": "#f1f3f6", "enable_publishing": false, "hide_side_toolbar": false,
+                "allow_symbol_change": true, "container_id": "tradingview_widget"
+            });
+        }
+        function updateTradingViewChart() {
+            initTradingView(document.getElementById("symbolSelect").value);
+        }
+        window.onload = function() {
+            initTradingView("BINANCE:BTCUSDT");
+            startLivePolling();
+        };
+        function startLivePolling() {
+            setInterval(async () => {
+                try {
+                    let response = await fetch('/api/v1/data');
+                    let result = await response.json();
+                    if(result.status === "success") {
+                        let data = result.data;
+                        for (let [symbol, newPrice] of Object.entries(data)) {
+                            let cleanSym = symbol.replace('/', '');
+                            let priceEl = document.getElementById(`price-${cleanSym}`);
+                            let rowEl = document.getElementById(`row-${cleanSym}`);
+                            if(priceEl && rowEl) {
+                                let oldPrice = parseFloat(priceEl.innerText.replace('$', '').replace(',', ''));
+                                if(newPrice > oldPrice) {
+                                    rowEl.classList.remove('flash-red'); rowEl.classList.add('flash-green');
+                                } else if(newPrice < oldPrice) {
+                                    rowEl.classList.remove('flash-green'); rowEl.classList.add('flash-red');
+                                }
+                                priceEl.innerText = `$${newPrice < 1 ? newPrice.toFixed(4) : newPrice.toFixed(2)}`;
+                            }
+                        }
+                    }
+                } catch(err) { console.error("Hata:", err); }
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JrKripto & CMC Dashboard</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #0f172a; color: #f8fafc; margin: 0; padding: 20px; }
+        .container { max-width: 1100px; margin: auto; background: #1e293b; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+        h1 { text-align: center; color: #38bdf8; margin-bottom: 5px; }
+        .timestamp { text-align: center; color: #94a3b8; margin-bottom: 25px; font-size: 0.9rem; }
+        
+        .macro-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom: 25px; }
+        .macro-card { background: #0f172a; padding: 15px; border-radius: 8px; border-left: 4px solid #38bdf8; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+        .macro-title { font-size: 0.85rem; color: #94a3b8; margin-bottom: 5px; }
+        .macro-value { font-size: 1.2rem; font-weight: bold; color: #f8fafc; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; background: #0f172a; border-radius: 8px; overflow: hidden; }
+        th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #334155; }
+        th { background: #334155; color: #e2e8f0; }
+        .green { color: #4ade80; font-weight: bold; }
+        .red { color: #f87171; font-weight: bold; }
+        .footer { text-align: center; margin-top: 25px; color: #64748b; font-size: 0.8rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 JrKripto & CMC Canlı Paneli</h1>
+        <div class="timestamp">Son Güncelleme: {{ timestamp }}</div>
+
+        <!-- Makro Göstergeler Paneli -->
+        <div class="macro-grid">
+            <div class="macro-card" style="border-left-color: #facc15;">
+                <div class="macro-title">🌐 BTC Dominansı</div>
+                <div class="macro-value">%{{ macro.btc_dominance }}</div>
+            </div>
+            <div class="macro-card" style="border-left-color: #38bdf8;">
+                <div class="macro-title">🌐 ETH Dominansı</div>
+                <div class="macro-value">%{{ macro.eth_dominance }}</div>
+            </div>
+            <div class="macro-card" style="border-left-color: #4ade80;">
+                <div class="macro-title">⚡ Korku & Açgözlülük</div>
+                <div class="macro-value">{{ macro.fear_greed_index }}/100</div>
+            </div>
+            <div class="macro-card" style="border-left-color: #f43f5e;">
+                <div class="macro-title">🔥 24s Likidasyon</div>
+                <div class="macro-value">${{ "{:,.0f}".format(macro.liquidations) }}</div>
+            </div>
+        </div>
+
+        <!-- Fiyat Tablosu -->
+        <table>
+            <thead>
+                <tr>
+                    <th>Sıra</th>
+                    <th>İsim</th>
+                    <th>Sembol</th>
+                    <th>Fiyat (USD)</th>
+                    <th>24s Değişim</th>
+                    <th>Hacim (24s)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in data %}
+                <tr>
+                    <td>{{ row.rank }}</td>
+                    <td>{{ row.name }}</td>
+                    <td><b>{{ row.symbol }}</b></td>
+                    <td>${{ "{:,.2f}".format(row.price) }}</td>
+                    <td class="{{ 'green' if row.percent_change_24h >= 0 else 'red' }}">
+                        {{ "{:+.2f}".format(row.percent_change_24h) }}%
+                    </td>
+                    <td>${{ "{:,.0f}".format(row.volume_24h) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div class="footer">Powered by Termux, Flask & JrKripto Data</div>
+    </div>
+</body>
+</html>
