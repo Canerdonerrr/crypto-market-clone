@@ -75,146 +75,126 @@ class MarketDataStore:
             return list(self.coingecko_coins_market)
 
 
-# Singleton Store (Streamlit cache kullanarak oturumlar arası korunur)
+# Streamlit cache kullanarak MarketDataStore ve Engine'i tekil (singleton) yapıyoruz
 @st.cache_resource
-py_store = MarketDataStore()
+def get_market_engine():
+    store = MarketDataStore()
+    
+    class BinancePoller:
+        def __init__(self, data_store):
+            self.store = data_store
+            self.stop_event = asyncio.Event()
 
+        async def poll_loop(self):
+            while not self.stop_event.is_set():
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(
+                            "https://data-api.binance.vision/api/v3/ticker/price",
+                            timeout=10,
+                        ) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                for item in data:
+                                    sym = item.get("symbol")
+                                    price = float(item.get("price", 0))
+                                    if sym:
+                                        self.store.update_price(sym, price)
+                except Exception:
+                    pass
+                await asyncio.sleep(4)
 
-# ============================================================
-# BACKGROUND POLLERS (Binance + CoinGecko API)
-# ============================================================
-class BinancePoller:
-    def __init__(self, data_store: MarketDataStore):
-        self.store = data_store
-        self.stop_event = asyncio.Event()
+    class CoinGeckoPoller:
+        def __init__(self, data_store):
+            self.store = data_store
+            self.stop_event = asyncio.Event()
 
-    async def poll_loop(self):
-        while not self.stop_event.is_set():
-            try:
+        async def poll_loop(self):
+            while not self.stop_event.is_set():
                 async with aiohttp.ClientSession() as session:
-                    async with session.get(
-                        "https://data-api.binance.vision/api/v3/ticker/price",
-                        timeout=10,
-                    ) as resp:
-                        if resp.status == 200:
-                            data = await resp.json()
-                            for item in data:
-                                sym = item.get("symbol")
-                                price = float(item.get("price", 0))
-                                if sym:
-                                    self.store.update_price(sym, price)
-            except Exception:
-                pass
-            await asyncio.sleep(4)
+                    try:
+                        async with session.get(
+                            "https://api.coingecko.com/api/v3/global", timeout=10
+                        ) as resp:
+                            if resp.status == 200:
+                                res_json = await resp.json()
+                                data = res_json.get("data", {})
+                                total_mc = data.get("total_market_cap", {}).get("usd")
+                                mc_change = data.get("market_cap_change_percentage_24h_usd")
+                                dominances = data.get("market_cap_percentage", {})
+                                btc_dom = dominances.get("btc")
+                                eth_dom = dominances.get("eth")
+                                active_coins = data.get("active_cryptocurrencies")
 
-
-class CoinGeckoPoller:
-    def __init__(self, data_store: MarketDataStore):
-        self.store = data_store
-        self.stop_event = asyncio.Event()
-
-    async def poll_loop(self):
-        while not self.stop_event.is_set():
-            async with aiohttp.ClientSession() as session:
-                try:
-                    async with session.get(
-                        "https://api.coingecko.com/api/v3/global", timeout=10
-                    ) as resp:
-                        if resp.status == 200:
-                            res_json = await resp.json()
-                            data = res_json.get("data", {})
-                            total_mc = data.get("total_market_cap", {}).get("usd")
-                            mc_change = data.get("market_cap_change_percentage_24h_usd")
-                            dominances = data.get("market_cap_percentage", {})
-                            btc_dom = dominances.get("btc")
-                            eth_dom = dominances.get("eth")
-                            active_coins = data.get("active_cryptocurrencies")
-
-                            self.store.update_global({
-                                "total_market_cap_usd": total_mc,
-                                "market_cap_change_percentage_24h_usd": mc_change,
-                                "btc_dominance": btc_dom,
-                                "eth_dominance": eth_dom,
-                                "active_cryptocurrencies": active_coins,
-                            })
-                except Exception:
-                    pass
-
-                try:
-                    async with session.get(
-                        "https://api.coingecko.com/api/v3/search/trending", timeout=10
-                    ) as resp:
-                        if resp.status == 200:
-                            res_json = await resp.json()
-                            coins = res_json.get("coins", [])
-                            extracted = []
-                            for c in coins[:5]:
-                                item = c.get("item", {})
-                                extracted.append({
-                                    "name": item.get("name"),
-                                    "symbol": item.get("symbol"),
+                                self.store.update_global({
+                                    "total_market_cap_usd": total_mc,
+                                    "market_cap_change_percentage_24h_usd": mc_change,
+                                    "btc_dominance": btc_dom,
+                                    "eth_dominance": eth_dom,
+                                    "active_cryptocurrencies": active_coins,
                                 })
-                            if extracted:
-                                self.store.update_trending(extracted)
-                except Exception:
-                    pass
+                    except Exception:
+                        pass
 
-                try:
-                    url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=5&page=1&sparkline=false"
-                    async with session.get(url, timeout=10) as resp:
-                        if resp.status == 200:
-                            coins_data = await resp.json()
-                            formatted_market = []
-                            for coin in coins_data:
-                                formatted_market.append({
-                                    "name": coin.get("name"),
-                                    "symbol": coin.get("symbol", "").upper(),
-                                    "price": coin.get("current_price"),
-                                    "change_24h": coin.get("price_change_percentage_24h"),
-                                    "market_cap": coin.get("market_cap"),
-                                    "rank": coin.get("market_cap_rank"),
-                                })
-                            self.store.update_cg_market(formatted_market)
-                except Exception:
-                    pass
+                    try:
+                        async with session.get(
+                            "https://api.coingecko.com/api/v3/search/trending", timeout=10
+                        ) as resp:
+                            if resp.status == 200:
+                                res_json = await resp.json()
+                                coins = res_json.get("coins", [])
+                                extracted = []
+                                for c in coins[:5]:
+                                    item = c.get("item", {})
+                                    extracted.append({
+                                        "name": item.get("name"),
+                                        "symbol": item.get("symbol"),
+                                    })
+                                if extracted:
+                                    self.store.update_trending(extracted)
+                    except Exception:
+                        pass
 
-            await asyncio.sleep(60)
+                    try:
+                        url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=5&page=1&sparkline=false"
+                        async with session.get(url, timeout=10) as resp:
+                            if resp.status == 200:
+                                coins_data = await resp.json()
+                                formatted_market = []
+                                for coin in coins_data:
+                                    formatted_market.append({
+                                        "name": coin.get("name"),
+                                        "symbol": coin.get("symbol", "").upper(),
+                                        "price": coin.get("current_price"),
+                                        "change_24h": coin.get("price_change_percentage_24h"),
+                                        "market_cap": coin.get("market_cap"),
+                                        "rank": coin.get("market_cap_rank"),
+                                    })
+                                self.store.update_cg_market(formatted_market)
+                    except Exception:
+                        pass
 
+                await asyncio.sleep(60)
 
-class TitanEngine:
-    def __init__(self):
-        self.store = py_store
-        self.binance_poller = BinancePoller(self.store)
-        self.cg_poller = CoinGeckoPoller(self.store)
-        self.started = False
+    binance_poller = BinancePoller(store)
+    cg_poller = CoinGeckoPoller(store)
 
-    def start(self):
-        if self.started:
-            return
-        self.started = True
+    def run_binance():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(binance_poller.poll_loop())
 
-        def run_binance():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(self.binance_poller.poll_loop())
+    def run_cg():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(cg_poller.poll_loop())
 
-        def run_cg():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(self.cg_poller.poll_loop())
+    threading.Thread(target=run_binance, daemon=True).start()
+    threading.Thread(target=run_cg, daemon=True).start()
 
-        threading.Thread(target=run_binance, daemon=True).start()
-        threading.Thread(target=run_cg, daemon=True).start()
+    return store
 
-
-@st.cache_resource
-def start_engine():
-    engine = TitanEngine()
-    engine.start()
-    return engine
-
-
-start_engine()
+py_store = get_market_engine()
 
 # ============================================================
 # STREAMLIT UI DESIGN
